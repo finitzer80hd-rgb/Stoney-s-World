@@ -1,0 +1,9 @@
+{
+  "FileVersion": 3,
+  "EngineAssociation": "5.5",
+  "Category": "Games",
+  "Description": "Stoney's World open-world action prototype",
+  "Modules": [
+    { "Name": "StoneyWorld", "Type": "Runtime", "LoadingPhase": "Default" }
+  ]
+}
