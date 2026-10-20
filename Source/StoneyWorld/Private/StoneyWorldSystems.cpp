@@ -50,6 +50,7 @@ AStoneyWorldMission::AStoneyWorldMission()
     SetRootComponent(Trigger);
     Trigger->InitSphereRadius(220.f);
     Trigger->SetCollisionProfileName(TEXT("OverlapAllDynamic"));
+    Trigger->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
     Label = CreateDefaultSubobject<UTextRenderComponent>(TEXT("MissionLabel"));
     Label->SetupAttachment(Trigger);
     Label->SetRelativeLocation(FVector(0,0,100));
