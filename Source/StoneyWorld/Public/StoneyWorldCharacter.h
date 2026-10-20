@@ -6,6 +6,7 @@
 
 class USpringArmComponent;
 class UCameraComponent;
+class UStoneyWorldHealthComponent;
 
 UCLASS()
 class STONEYWORLD_API AStoneyWorldCharacter : public ACharacter
@@ -33,12 +34,19 @@ protected:
     void ReelGrapple(float Value);
     void DeployGlide();
     void StopGlide();
+    void Interact();
+    void FireWeapon();
+    void SaveProgress();
+    void LoadProgress();
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Camera")
     TObjectPtr<USpringArmComponent> CameraBoom;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Camera")
     TObjectPtr<UCameraComponent> FollowCamera;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Gameplay")
+    TObjectPtr<UStoneyWorldHealthComponent> HealthComponent;
 
     UPROPERTY(EditAnywhere, Category="Movement", meta=(ClampMin="100.0"))
     float WalkSpeed = 600.f;
