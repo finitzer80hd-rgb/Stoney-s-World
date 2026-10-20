@@ -172,6 +172,10 @@ void AStoneyWorldCharacter::StartSlide()
     SlideTimeRemaining = SlideDuration;
     Move->GroundFriction = 0.5f;
     Move->BrakingDecelerationWalking = 900.f;
+
+    // CharacterMovement uses MaxWalkSpeedCrouched while crouched, not MaxWalkSpeed.
+    // Raise the crouched limit for the duration of the slide or the slide is capped at 360.
+    Move->MaxWalkSpeedCrouched = SlideSpeed;
     Move->MaxWalkSpeed = SlideSpeed;
     Crouch();
 }
@@ -189,6 +193,7 @@ void AStoneyWorldCharacter::EndSlide()
     UCharacterMovementComponent* Move = GetCharacterMovement();
     Move->GroundFriction = DefaultGroundFriction;
     Move->BrakingDecelerationWalking = 2400.f;
+    Move->MaxWalkSpeedCrouched = 360.f;
     Move->MaxWalkSpeed = bSprinting ? SprintSpeed : WalkSpeed;
 }
 
