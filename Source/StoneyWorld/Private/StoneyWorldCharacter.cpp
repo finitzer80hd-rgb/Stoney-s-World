@@ -49,6 +49,8 @@ void AStoneyWorldCharacter::Tick(float DeltaSeconds)
             bSliding = false;
             GetCharacterMovement()->MaxWalkSpeed = bSprinting ? SprintSpeed : WalkSpeed;
             GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+            UnCrouch();
+            GetCharacterMovement()->GroundFriction = 8.f;
         }
     }
     if (bGliding && GetCharacterMovement()->IsFalling())
@@ -112,7 +114,7 @@ void AStoneyWorldCharacter::StartSlide()
     bSliding = true; SlideTime = 0.85f;
     GetCharacterMovement()->MaxWalkSpeed = SlideSpeed;
     GetCharacterMovement()->GroundFriction = 0.5f;
-    GetCharacterMovement()->Crouch();
+    Crouch();
 }
 void AStoneyWorldCharacter::FireGrapple()
 {
@@ -160,5 +162,5 @@ void AStoneyWorldCharacter::StopGlide()
 {
     bGliding = false;
     GetCharacterMovement()->AirControl = 0.8f;
-    if (bSliding) UnCrouch();
+
 }
