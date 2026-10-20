@@ -4,6 +4,15 @@
 #include "GameFramework/Character.h"
 
 UStoneyWorldHealthComponent::UStoneyWorldHealthComponent() { PrimaryComponentTick.bCanEverTick = false; }
+void UStoneyWorldHealthComponent::BeginPlay()
+{
+    Super::BeginPlay();
+    if (AActor* Owner = GetOwner()) Owner->OnTakeAnyDamage.AddDynamic(this, &UStoneyWorldHealthComponent::HandleOwnerDamage);
+}
+void UStoneyWorldHealthComponent::HandleOwnerDamage(AActor* DamagedActor, float Damage, const UDamageType* DamageType, AController* InstigatedBy, AActor* DamageCauser)
+{
+    ApplyDamage(Damage);
+}
 void UStoneyWorldHealthComponent::ApplyDamage(float Amount)
 {
     Health = FMath::Clamp(Health - FMath::Max(0.f, Amount), 0.f, MaxHealth);
