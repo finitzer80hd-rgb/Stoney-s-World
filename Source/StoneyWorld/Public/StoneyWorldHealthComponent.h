@@ -9,6 +9,10 @@ class STONEYWORLD_API UStoneyWorldHealthComponent : public UActorComponent
     GENERATED_BODY()
 public:
     UStoneyWorldHealthComponent();
+protected:
+    virtual void BeginPlay() override;
+    UFUNCTION() void HandleOwnerDamage(AActor* DamagedActor, float Damage, const UDamageType* DamageType, AController* InstigatedBy, AActor* DamageCauser);
+public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Health") float MaxHealth = 100.f;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Health") float Health = 100.f;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Wanted") int32 WantedLevel = 0;
