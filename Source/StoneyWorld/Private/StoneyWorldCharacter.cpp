@@ -1,4 +1,6 @@
 #include "StoneyWorldCharacter.h"
+#include "StoneyWorldHealthComponent.h"
+#include "StoneyWorldSystems.h"
 
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -6,6 +8,7 @@
 #include "DrawDebugHelpers.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
+#include "Kismet/GameplayStatics.h"
 
 AStoneyWorldCharacter::AStoneyWorldCharacter()
 {
@@ -26,6 +29,8 @@ AStoneyWorldCharacter::AStoneyWorldCharacter()
     Move->RotationRate = FRotator(0.f, 720.f, 0.f);
     Move->bOrientRotationToMovement = true;
     Move->GetNavAgentPropertiesRef().bCanCrouch = true;
+
+    HealthComponent = CreateDefaultSubobject<UStoneyWorldHealthComponent>(TEXT("HealthComponent"));
 
     CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
     CameraBoom->SetupAttachment(RootComponent);
@@ -119,6 +124,10 @@ void AStoneyWorldCharacter::SetupPlayerInputComponent(UInputComponent* Input)
     Input->BindAction("Grapple", IE_Released, this, &AStoneyWorldCharacter::ReleaseGrapple);
     Input->BindAction("Glide", IE_Pressed, this, &AStoneyWorldCharacter::DeployGlide);
     Input->BindAction("Glide", IE_Released, this, &AStoneyWorldCharacter::StopGlide);
+    Input->BindAction("Interact", IE_Pressed, this, &AStoneyWorldCharacter::Interact);
+    Input->BindAction("FireWeapon", IE_Pressed, this, &AStoneyWorldCharacter::FireWeapon);
+    Input->BindAction("SaveProgress", IE_Pressed, this, &AStoneyWorldCharacter::SaveProgress);
+    Input->BindAction("LoadProgress", IE_Pressed, this, &AStoneyWorldCharacter::LoadProgress);
 }
 
 void AStoneyWorldCharacter::MoveForward(float Value)
@@ -322,4 +331,45 @@ void AStoneyWorldCharacter::FinishMovementStatesOnLanding()
             EndSlide();
         }
     }
+}
+
+void AStoneyWorldCharacter::Interact()
+{
+    if (!Controller) return;
+    FVector Start; FRotator Rotation; Controller->GetPlayerViewPoint(Start, Rotation);
+    FHitResult Hit;
+    FCollisionQueryParams Params(SCENE_QUERY_STAT(StoneyInteract), false, this);
+    if (!GetWorld()->LineTraceSingleByChannel(Hit, Start, Start + Rotation.Vector() * 650.f, ECC_Visibility, Params)) return;
+    if (AStoneyWorldMission* Mission = Cast<AStoneyWorldMission>(Hit.GetActor()))
+    {
+        if (Mission->CompleteMission(this) && HealthComponent) HealthComponent->MissionsCompleted++;
+        return;
+    }
+    if (AStoneyWorldVehicle* Vehicle = Cast<AStoneyWorldVehicle>(Hit.GetActor())) Vehicle->EnterVehicle(this);
+}
+
+void AStoneyWorldCharacter::FireWeapon()
+{
+    if (!Controller) return;
+    FVector Start; FRotator Rotation; Controller->GetPlayerViewPoint(Start, Rotation);
+    FHitResult Hit;
+    FCollisionQueryParams Params(SCENE_QUERY_STAT(StoneyWeapon), true, this);
+    Params.AddIgnoredActor(this);
+    const bool bHit = GetWorld()->LineTraceSingleByChannel(Hit, Start, Start + Rotation.Vector() * 10000.f, ECC_Visibility, Params);
+    DrawDebugLine(GetWorld(), Start, bHit ? Hit.ImpactPoint : Start + Rotation.Vector() * 10000.f, FColor::Red, false, 0.12f, 0, 1.5f);
+    if (bHit && Hit.GetActor())
+    {
+        UGameplayStatics::ApplyDamage(Hit.GetActor(), 34.f, GetController(), this, nullptr);
+        if (Cast<AStoneyWorldNPC>(Hit.GetActor()) && HealthComponent) HealthComponent->AddWantedLevel(1);
+    }
+}
+
+void AStoneyWorldCharacter::SaveProgress()
+{
+    if (HealthComponent) HealthComponent->SaveProgress();
+}
+
+void AStoneyWorldCharacter::LoadProgress()
+{
+    if (HealthComponent) HealthComponent->LoadProgress();
 }
