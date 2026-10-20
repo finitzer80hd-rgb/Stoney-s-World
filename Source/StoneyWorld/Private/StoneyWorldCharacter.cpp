@@ -1,17 +1,20 @@
 #include "StoneyWorldCharacter.h"
+
 #include "Camera/CameraComponent.h"
-#include "GameFramework/SpringArmComponent.h"
-#include "GameFramework/CharacterMovementComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/InputComponent.h"
 #include "DrawDebugHelpers.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/SpringArmComponent.h"
 
 AStoneyWorldCharacter::AStoneyWorldCharacter()
 {
     PrimaryActorTick.bCanEverTick = true;
+
     bUseControllerRotationPitch = false;
     bUseControllerRotationYaw = false;
     bUseControllerRotationRoll = false;
+
     UCharacterMovementComponent* Move = GetCharacterMovement();
     Move->MaxWalkSpeed = WalkSpeed;
     Move->MaxWalkSpeedCrouched = 360.f;
@@ -22,54 +25,91 @@ AStoneyWorldCharacter::AStoneyWorldCharacter()
     Move->GravityScale = 1.15f;
     Move->RotationRate = FRotator(0.f, 720.f, 0.f);
     Move->bOrientRotationToMovement = true;
+    Move->GetNavAgentPropertiesRef().bCanCrouch = true;
 
     CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
     CameraBoom->SetupAttachment(RootComponent);
     CameraBoom->TargetArmLength = 360.f;
     CameraBoom->bUsePawnControlRotation = true;
-    CameraBoom->SetRelativeLocation(FVector(0,0,72));
+    CameraBoom->SetRelativeLocation(FVector(0.f, 0.f, 72.f));
+
     FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
     FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
+
     AutoPossessPlayer = EAutoReceiveInput::Player0;
 }
+
 void AStoneyWorldCharacter::BeginPlay()
 {
     Super::BeginPlay();
-    GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+    UCharacterMovementComponent* Move = GetCharacterMovement();
+    Move->MaxWalkSpeed = WalkSpeed;
+    DefaultGroundFriction = Move->GroundFriction;
+    DefaultAirControl = Move->AirControl;
 }
+
 void AStoneyWorldCharacter::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
+
+    UCharacterMovementComponent* Move = GetCharacterMovement();
+
     if (bSliding)
     {
-        SlideTime -= DeltaSeconds;
-        AddMovementInput(GetActorForwardVector(), 1.f);
-        if (SlideTime <= 0.f || GetCharacterMovement()->IsMovingOnGround() == false)
+        SlideTimeRemaining -= DeltaSeconds;
+
+        // Preserve forward momentum without forcing the character to walk while airborne.
+        if (Move->IsMovingOnGround())
         {
-            bSliding = false;
-            GetCharacterMovement()->MaxWalkSpeed = bSprinting ? SprintSpeed : WalkSpeed;
-            GetCharacterMovement()->SetMovementMode(MOVE_Walking);
-            UnCrouch();
-            GetCharacterMovement()->GroundFriction = 8.f;
+            AddMovementInput(GetActorForwardVector(), 0.65f);
+        }
+
+        if (SlideTimeRemaining <= 0.f || !Move->IsMovingOnGround())
+        {
+            EndSlide();
         }
     }
-    if (bGliding && GetCharacterMovement()->IsFalling())
+
+    if (bGrappling)
     {
-        FVector V = GetVelocity();
-        V.Z = FMath::Max(V.Z, -350.f);
-        GetCharacterMovement()->Velocity = V;
-        GetCharacterMovement()->AirControl = 1.f;
+        if (Move->IsMovingOnGround())
+        {
+            ReleaseGrapple();
+        }
+        else
+        {
+            UpdateGrapple(DeltaSeconds);
+        }
     }
-    else if (bGrappling) UpdateGrapple(DeltaSeconds);
+
+    if (bGliding)
+    {
+        if (Move->IsFalling())
+        {
+            FVector Velocity = Move->Velocity;
+            Velocity.Z = FMath::Max(Velocity.Z, -GlideMaxFallSpeed);
+            Move->Velocity = Velocity;
+            Move->AirControl = GlideAirControl;
+        }
+        else
+        {
+            StopGlide();
+        }
+    }
+
+    FinishMovementStatesOnLanding();
 }
+
 void AStoneyWorldCharacter::SetupPlayerInputComponent(UInputComponent* Input)
 {
     Super::SetupPlayerInputComponent(Input);
+
     Input->BindAxis("MoveForward", this, &AStoneyWorldCharacter::MoveForward);
     Input->BindAxis("MoveRight", this, &AStoneyWorldCharacter::MoveRight);
     Input->BindAxis("Turn", this, &AStoneyWorldCharacter::Turn);
     Input->BindAxis("LookUp", this, &AStoneyWorldCharacter::LookUp);
     Input->BindAxis("GrappleReel", this, &AStoneyWorldCharacter::ReelGrapple);
+
     Input->BindAction("Jump", IE_Pressed, this, &ACharacter::Jump);
     Input->BindAction("Jump", IE_Released, this, &ACharacter::StopJumping);
     Input->BindAction("Sprint", IE_Pressed, this, &AStoneyWorldCharacter::StartSprint);
@@ -80,87 +120,201 @@ void AStoneyWorldCharacter::SetupPlayerInputComponent(UInputComponent* Input)
     Input->BindAction("Glide", IE_Pressed, this, &AStoneyWorldCharacter::DeployGlide);
     Input->BindAction("Glide", IE_Released, this, &AStoneyWorldCharacter::StopGlide);
 }
-void AStoneyWorldCharacter::MoveForward(float V)
+
+void AStoneyWorldCharacter::MoveForward(float Value)
 {
-    if (Controller && !FMath::IsNearlyZero(V))
+    if (Controller && !FMath::IsNearlyZero(Value))
     {
-        const FRotator Yaw(0, Controller->GetControlRotation().Yaw, 0);
-        AddMovementInput(FRotationMatrix(Yaw).GetUnitAxis(EAxis::X), V);
+        const FRotator Yaw(0.f, Controller->GetControlRotation().Yaw, 0.f);
+        AddMovementInput(FRotationMatrix(Yaw).GetUnitAxis(EAxis::X), Value);
     }
 }
-void AStoneyWorldCharacter::MoveRight(float V)
+
+void AStoneyWorldCharacter::MoveRight(float Value)
 {
-    if (Controller && !FMath::IsNearlyZero(V))
+    if (Controller && !FMath::IsNearlyZero(Value))
     {
-        const FRotator Yaw(0, Controller->GetControlRotation().Yaw, 0);
-        AddMovementInput(FRotationMatrix(Yaw).GetUnitAxis(EAxis::Y), V);
+        const FRotator Yaw(0.f, Controller->GetControlRotation().Yaw, 0.f);
+        AddMovementInput(FRotationMatrix(Yaw).GetUnitAxis(EAxis::Y), Value);
     }
 }
-void AStoneyWorldCharacter::Turn(float V) { AddControllerYawInput(V); }
-void AStoneyWorldCharacter::LookUp(float V) { AddControllerPitchInput(V); }
+
+void AStoneyWorldCharacter::Turn(float Value) { AddControllerYawInput(Value); }
+void AStoneyWorldCharacter::LookUp(float Value) { AddControllerPitchInput(Value); }
+
 void AStoneyWorldCharacter::StartSprint()
 {
     bSprinting = true;
-    if (!bSliding) GetCharacterMovement()->MaxWalkSpeed = SprintSpeed;
+    if (!bSliding && !bIsCrouched)
+    {
+        GetCharacterMovement()->MaxWalkSpeed = SprintSpeed;
+    }
 }
+
 void AStoneyWorldCharacter::StopSprint()
 {
     bSprinting = false;
-    if (!bSliding) GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+    if (!bSliding)
+    {
+        GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+    }
 }
+
 void AStoneyWorldCharacter::StartSlide()
 {
-    if (!GetCharacterMovement()->IsMovingOnGround() || GetVelocity().Size2D() < 250.f) return;
-    bSliding = true; SlideTime = 0.85f;
-    GetCharacterMovement()->MaxWalkSpeed = SlideSpeed;
-    GetCharacterMovement()->GroundFriction = 0.5f;
+    UCharacterMovementComponent* Move = GetCharacterMovement();
+    if (bSliding || !Move->IsMovingOnGround() || GetVelocity().Size2D() < 300.f)
+    {
+        return;
+    }
+
+    bSliding = true;
+    SlideTimeRemaining = SlideDuration;
+    Move->GroundFriction = 0.5f;
+    Move->BrakingDecelerationWalking = 900.f;
+    Move->MaxWalkSpeed = SlideSpeed;
     Crouch();
 }
+
+void AStoneyWorldCharacter::EndSlide()
+{
+    if (!bSliding)
+    {
+        return;
+    }
+
+    bSliding = false;
+    UnCrouch();
+
+    UCharacterMovementComponent* Move = GetCharacterMovement();
+    Move->GroundFriction = DefaultGroundFriction;
+    Move->BrakingDecelerationWalking = 2400.f;
+    Move->MaxWalkSpeed = bSprinting ? SprintSpeed : WalkSpeed;
+}
+
 void AStoneyWorldCharacter::FireGrapple()
 {
-    if (!Controller) return;
-    FVector Start; FRotator Rot;
-    Controller->GetPlayerViewPoint(Start, Rot);
+    if (!Controller || bGrappling)
+    {
+        return;
+    }
+
+    FVector ViewLocation;
+    FRotator ViewRotation;
+    Controller->GetPlayerViewPoint(ViewLocation, ViewRotation);
+
     FHitResult Hit;
     FCollisionQueryParams Params(SCENE_QUERY_STAT(StoneyGrapple), false, this);
-    if (GetWorld()->LineTraceSingleByChannel(Hit, Start, Start + Rot.Vector() * GrappleRange, ECC_Visibility, Params))
+    const FVector TraceEnd = ViewLocation + ViewRotation.Vector() * GrappleRange;
+
+    if (GetWorld()->LineTraceSingleByChannel(Hit, ViewLocation, TraceEnd, ECC_Visibility, Params))
     {
+        // Ignore hits that are effectively underfoot or too close for a useful swing.
+        const float Distance = FVector::Distance(GetActorLocation(), Hit.ImpactPoint);
+        if (Distance < 220.f)
+        {
+            return;
+        }
+
         GrappleAnchor = Hit.ImpactPoint;
-        GrappleLength = FVector::Distance(GetActorLocation(), GrappleAnchor);
+        GrappleLength = FMath::Clamp(Distance, 180.f, GrappleRange);
         bGrappling = true;
         bGliding = false;
         GetCharacterMovement()->SetMovementMode(MOVE_Falling);
     }
 }
+
 void AStoneyWorldCharacter::UpdateGrapple(float DeltaSeconds)
 {
-    DrawDebugLine(GetWorld(), GetActorLocation(), GrappleAnchor, FColor::Yellow, false, 0.f, 0, 2.f);
-    FVector ToAnchor = GrappleAnchor - GetActorLocation();
+    UCharacterMovementComponent* Move = GetCharacterMovement();
+    const FVector CharacterLocation = GetActorLocation();
+    FVector ToAnchor = GrappleAnchor - CharacterLocation;
     const float Distance = ToAnchor.Size();
-    if (Distance < 160.f) { ReleaseGrapple(); return; }
-    const FVector Direction = ToAnchor.GetSafeNormal();
-    FVector V = GetCharacterMovement()->Velocity;
-    // Pull inward while retaining tangential momentum for a simple swing feel.
-    const float Inward = FVector::DotProduct(V, Direction);
-    V += Direction * FMath::Max(0.f, ReelSpeed * DeltaSeconds - Inward * 0.15f);
-    const FVector Radial = Direction * FVector::DotProduct(V, Direction);
-    V -= Radial * 0.12f;
-    GetCharacterMovement()->Velocity = V.GetClampedToMaxSize(2400.f);
-    GrappleLength = FMath::Max(150.f, GrappleLength - 80.f * DeltaSeconds);
+
+    DrawDebugLine(GetWorld(), CharacterLocation, GrappleAnchor, FColor::Yellow, false, 0.f, 0, 2.f);
+
+    if (Distance < 150.f)
+    {
+        ReleaseGrapple();
+        return;
+    }
+
+    const FVector DirectionToAnchor = ToAnchor / Distance;
+
+    // Apply pull acceleration, then enforce a maximum rope length while retaining tangential velocity.
+    Move->Velocity += DirectionToAnchor * GrapplePullAcceleration * DeltaSeconds;
+    const float RadialVelocity = FVector::DotProduct(Move->Velocity, DirectionToAnchor);
+
+    if (Distance > GrappleLength)
+    {
+        const float ExcessDistance = Distance - GrappleLength;
+        const FVector CorrectedLocation = CharacterLocation + DirectionToAnchor * ExcessDistance;
+        SetActorLocation(CorrectedLocation, true);
+
+        // DirectionToAnchor points inward; negative radial velocity is moving away from the anchor.
+        if (RadialVelocity < 0.f)
+        {
+            Move->Velocity -= DirectionToAnchor * RadialVelocity;
+        }
+    }
+
+    Move->Velocity = Move->Velocity.GetClampedToMaxSize(2400.f);
 }
-void AStoneyWorldCharacter::ReleaseGrapple() { bGrappling = false; }
-void AStoneyWorldCharacter::ReelGrapple(float V)
+
+void AStoneyWorldCharacter::ReleaseGrapple()
 {
-    if (bGrappling && !FMath::IsNearlyZero(V))
-        GrappleLength = FMath::Clamp(GrappleLength - V * ReelSpeed * GetWorld()->GetDeltaSeconds(), 150.f, GrappleRange);
+    bGrappling = false;
 }
+
+void AStoneyWorldCharacter::ReelGrapple(float Value)
+{
+    if (bGrappling && !FMath::IsNearlyZero(Value))
+    {
+        GrappleLength = FMath::Clamp(
+            GrappleLength - Value * ReelSpeed * GetWorld()->GetDeltaSeconds(),
+            180.f,
+            GrappleRange);
+    }
+}
+
 void AStoneyWorldCharacter::DeployGlide()
 {
-    if (GetCharacterMovement()->IsFalling()) { bGliding = true; bGrappling = false; }
+    if (GetCharacterMovement()->IsFalling())
+    {
+        bGliding = true;
+        bGrappling = false;
+        GetCharacterMovement()->AirControl = GlideAirControl;
+    }
 }
+
 void AStoneyWorldCharacter::StopGlide()
 {
-    bGliding = false;
-    GetCharacterMovement()->AirControl = 0.8f;
+    if (!bGliding)
+    {
+        return;
+    }
 
+    bGliding = false;
+    GetCharacterMovement()->AirControl = DefaultAirControl;
+}
+
+void AStoneyWorldCharacter::FinishMovementStatesOnLanding()
+{
+    UCharacterMovementComponent* Move = GetCharacterMovement();
+
+    if (!Move->IsFalling())
+    {
+        if (bGrappling)
+        {
+            ReleaseGrapple();
+        }
+        if (bGliding)
+        {
+            StopGlide();
+        }
+        if (bSliding)
+        {
+            EndSlide();
+        }
+    }
 }
