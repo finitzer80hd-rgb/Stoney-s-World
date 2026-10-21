@@ -4,6 +4,8 @@
 #include "GameFramework/Actor.h"
 #include "StoneyWorldDistrictBuilder.generated.h"
 
+class UStaticMesh;
+
 UCLASS()
 class STONEYWORLD_API AStoneyWorldDistrictBuilder : public AActor
 {
