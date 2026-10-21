@@ -6,7 +6,6 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
-#include "GameFramework/PlayerStart.h"
 #include "UObject/ConstructorHelpers.h"
 
 AStoneyWorldDistrictBuilder::AStoneyWorldDistrictBuilder()
@@ -48,7 +47,6 @@ void AStoneyWorldDistrictBuilder::SpawnBlock(const FVector& RelativeLocation, co
         Mesh->SetCollisionProfileName(TEXT("BlockAll"));
         Mesh->SetGenerateOverlapEvents(false);
     }
-    Block->SetActorLabel(TEXT("District - Prototype Block"));
 }
 
 void AStoneyWorldDistrictBuilder::BuildRoadsAndSidewalks()
@@ -118,16 +116,6 @@ void AStoneyWorldDistrictBuilder::SpawnPrototypeActors()
     SpawnAt(AStoneyWorldNPC::StaticClass(), FVector(1800.f, -550.f, 100.f));
     SpawnAt(AStoneyWorldVehicle::StaticClass(), FVector(-800.f, 250.f, 80.f));
 
-    // Spawn a PlayerStart for convenience when the level has none. For reliable startup,
-    // manually place a PlayerStart in the editor before pressing Play (recommended).
-    bool bHasPlayerStart = false;
-    for (TActorIterator<APlayerStart> It(GetWorld()); It; ++It)
-    {
-        bHasPlayerStart = true;
-        break;
-    }
-    if (!bHasPlayerStart)
-    {
-        GetWorld()->SpawnActor<APlayerStart>(APlayerStart::StaticClass(), Origin + Facing.RotateVector(FVector(-350.f, -350.f, 130.f)), Facing);
-    }
+    // Place a PlayerStart in the editor before Play. GameMode selects the player spawn
+    // before this actor BeginPlay, so a runtime-spawned PlayerStart is too late.
 }
