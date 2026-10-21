@@ -5,7 +5,7 @@ public class StoneyWorldEditorTarget : TargetRules
     public StoneyWorldEditorTarget(TargetInfo Target) : base(Target)
     {
         Type = TargetType.Editor;
-        DefaultBuildSettings = BuildSettingsVersion.V5;
+        DefaultBuildSettings = BuildSettingsVersion.V7;
         IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_5;
         ExtraModuleNames.Add("StoneyWorld");
     }
